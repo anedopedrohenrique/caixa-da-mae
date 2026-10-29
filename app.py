@@ -66,7 +66,7 @@ with aba_estoque:
                 cursor = conn.cursor()
                 cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (qtd_rep, id_rep))
                 conn.commit()
-                st.success("Estoque atualizado!")
+                st.success("Estoque atualizado! Recarregue a página.")
                 
     with st.expander("➕ Cadastrar Bebida Nova"):
         nome = st.text_input("Nome (ex: Coca 2L)")
@@ -76,7 +76,19 @@ with aba_estoque:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO Produtos (nome, custo, venda) VALUES (?, ?, ?)", (nome, custo, venda))
             conn.commit()
-            st.success(f"Produto {nome} cadastrado!")
+            st.success(f"Produto {nome} cadastrado! Recarregue a página.")
+
+    # --- O BOTÃO NOVO AQUI ---
+    with st.expander("🗑️ Apagar um Produto"):
+        if not df_prod.empty:
+            prod_apagar = st.selectbox("Qual produto deseja excluir?", df_prod['nome'].tolist())
+            st.warning("Atenção: O produto será removido da lista definitivamente.")
+            if st.button("🚨 Apagar Produto"):
+                id_apagar = int(df_prod[df_prod['nome'] == prod_apagar]['id'].values[0])
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM Produtos WHERE id = ?", (id_apagar,))
+                conn.commit()
+                st.success(f"[{prod_apagar}] excluído com sucesso! Recarregue a página.")
 
 # --- 3. RESUMO ---
 with aba_resumo:
@@ -90,7 +102,8 @@ with aba_resumo:
         st.metric("Entrou no Caixa Hoje", f"R$ {vendas_hoje['total'].sum():.2f}")
         
         st.write("Vendas Feitas Hoje:")
-        df_display = pd.read_sql_query(f"SELECT Produtos.nome as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento FROM Vendas JOIN Produtos ON Vendas.produto_id = Produtos.id WHERE Vendas.data_hora LIKE '{hoje}%'", conn)
+        # Atualizei a lógica aqui para o site não quebrar se ela vender um produto e depois apagar ele do sistema
+        df_display = pd.read_sql_query(f"SELECT COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id WHERE Vendas.data_hora LIKE '{hoje}%'", conn)
         st.dataframe(df_display, hide_index=True, use_container_width=True)
     else:
         st.info("Nenhuma venda registrada ainda.")
