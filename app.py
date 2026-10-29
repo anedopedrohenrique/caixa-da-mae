@@ -72,7 +72,14 @@ with aba_vender:
                 cursor = conn.cursor()
                 cursor.execute("INSERT INTO Vendas (produto_id, tipo_venda, qtd, pagamento, total_venda, custo_venda, lucro, data_hora) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
                                (id_prod, tipo, qtd, pagamento, total_cobrar, custo_da_venda, lucro_da_venda, agora))
-                cursor.execute("UPDATE Produtos SET estoque = estoque - ? WHERE id = ?", (qtd_descontar_estoque, id_prod))
+                
+                # Desconta o estoque correto (unidade ou fardo completo)
+                if tipo == "Fardo Fechado":
+                    qtd_baixa = qtd * qtd_fardo
+                else:
+                    qtd_baixa = qtd
+                    
+                cursor.execute("UPDATE Produtos SET estoque = estoque - ? WHERE id = ?", (qtd_baixa, id_prod))
                 conn.commit()
                 st.success("Venda registrada! Dinheiro no caixa.")
             else:
@@ -93,7 +100,6 @@ with aba_estoque:
         df_view['Unid. Soltas'] = df_view['estoque'] % df_view['qtd_fardo']
         st.dataframe(df_view[['nome', 'Preço Un.', 'Preço Fardo', 'Fardos', 'Unid. Soltas']], hide_index=True, use_container_width=True)
         
-        # --- GERADOR DE CARDÁPIO WHATSAPP ---
         with st.expander("📲 Gerar Cardápio para o WhatsApp (Clique aqui)"):
             st.write("Copie o texto abaixo e cole no seu Status ou mande para os clientes!")
             menu_texto = "🍻 *CARDÁPIO DEPÓSITO RL* 🍻\n\n"
@@ -104,7 +110,6 @@ with aba_estoque:
                     menu_texto += f"  📦 Fardo ({row['qtd_fardo']} un): R$ {row['venda_fardo']:.2f}\n"
                 menu_texto += "\n"
             menu_texto += "📍 Entregas rápidas e bebida gelada!"
-            
             st.text_area("Texto pronto para copiar:", menu_texto, height=200)
     else:
         st.write("Nenhum produto cadastrado ainda.")
@@ -140,26 +145,7 @@ with aba_estoque:
                 cursor = conn.cursor()
                 cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (qtd_final, id_rep))
                 conn.commit()
-                st.success(f"Estoque abastecido! Atualize a página.")
-
-    with st.expander("🚀 Cadastrar Produtos por Planilha (Rápido)"):
-        st.write("Baixe o modelo abaixo, preencha no Excel e suba o arquivo aqui para cadastrar tudo de uma vez.")
-        df_modelo = pd.DataFrame({"nome": ["Brahma Duplo Malte 350ml", "Coca Cola 2L"], "custo_fardo": [35.90, 8.00], "venda_un": [4.00, 10.00], "venda_fardo": [42.00, 10.00], "qtd_fardo": [12, 1]})
-        st.download_button("1. Baixar Planilha Modelo", df_modelo.to_csv(index=False), "modelo_produtos.csv", "text/csv")
-        
-        planilha_up = st.file_uploader("2. Subir Planilha Preenchida", type=["csv"])
-        if planilha_up is not None:
-            if st.button("Ler Planilha e Cadastrar Tudo"):
-                try:
-                    df_novo = pd.read_csv(planilha_up)
-                    cursor = conn.cursor()
-                    for _, row in df_novo.iterrows():
-                        cursor.execute("INSERT INTO Produtos (nome, custo_fardo, venda_un, venda_fardo, qtd_fardo) VALUES (?, ?, ?, ?, ?)", 
-                                       (row['nome'], row['custo_fardo'], row['venda_un'], row['venda_fardo'], row['qtd_fardo']))
-                    conn.commit()
-                    st.success("Planilha lida com sucesso! Produtos cadastrados. Atualize a página.")
-                except Exception as e:
-                    st.error("Erro ao ler a planilha. Certifique-se de usar o modelo exato.")
+                st.success("Estoque abastecido! Atualize a página.")
 
 # --- 3. RESUMO E LUCRO ---
 with aba_resumo:
@@ -183,11 +169,39 @@ with aba_resumo:
         
         c1, c2 = st.columns(2)
         c1.metric("💰 Faturamento Bruto (Entrou)", f"R$ {total_bruto:.2f}")
-        c2.metric("📈 Lucro Líquido Real (Sobrou)", f> f"R$ {total_lucro:.2f}" if False else f"R$ {total_lucro:.2f}")
+        c2.metric("📈 Lucro Líquido Real (Sobrou)", f"R$ {total_lucro:.2f}")
         
         st.write("Vendas deste turno:")
-        st.dataframe(df_vendas_turno[['Produto', 'Tipo', 'Qtd', 'Valor', 'Lucro', 'Pagamento']], hide_index=True, use_container_width=True)
+        st.dataframe(df_vendas_turno[['id', 'Produto', 'Tipo', 'Qtd', 'Valor', 'Lucro', 'Pagamento']], hide_index=True, use_container_width=True)
         
+        # --- CANCELAR VENDA DE VOLTA ---
+        with st.expander("↩️ Cancelar uma Venda Deste Turno"):
+            opcoes_venda = df_vendas_turno.apply(lambda r: f"ID: {r['id']} | {r['Produto']} ({r['Tipo']}) | R$ {r['Valor']:.2f}", axis=1).tolist()
+            venda_cancelar = st.selectbox("Selecione a venda registrada errada:", opcoes_venda)
+            
+            if st.button("🚨 Cancelar Venda e Devolver ao Estoque"):
+                idx_v = opcoes_venda.index(venda_cancelar)
+                id_venda_real = int(df_vendas_turno.iloc[idx_v]['id'])
+                
+                # Descobre produto, tipo e quantidade para devolver ao estoque corretamente
+                cursor.execute("SELECT produto_id, tipo_venda, qtd FROM Vendas WHERE id = ?", (id_venda_real,))
+                dados_v = cursor.fetchone()
+                
+                if dados_v:
+                    p_id, p_tipo, p_qtd = dados_v
+                    if p_id:
+                        # Pega o fator do fardo para devolver a quantidade certa de unidades
+                        cursor.execute("SELECT qtd_fardo FROM Produtos WHERE id = ?", (p_id,))
+                        res_f = cursor.fetchone()
+                        fator_fardo = res_f[0] if res_f else 1
+                        
+                        qtd_devolver = (p_qtd * fator_fardo) if p_tipo == "Fardo Fechado" else p_qtd
+                        cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (qtd_devolver, p_id))
+                    
+                    cursor.execute("DELETE FROM Vendas WHERE id = ?", (id_venda_real,))
+                    conn.commit()
+                    st.success("Venda cancelada! Caixa e estoque corrigidos. Recarregue a página.")
+
         st.divider()
         st.subheader("🔒 Fechar o Caixa")
         if st.button("Encerrar Turno Agora", type="primary"):
