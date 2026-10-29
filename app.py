@@ -133,9 +133,11 @@ with aba_estoque:
             conn.commit()
             st.success(f"[{nome}] cadastrado com sucesso! Atualize a página.")
 
+    # --- O BOTÃO DE REPOR ESTOQUE ESTÁ AQUI DE VOLTA! ---
     with st.expander("📥 Repor Mercadoria Existente"):
-        if not df_prod.empty:
-            prod_rep = st.selectbox("O que chegou do caminhão?", df_prod['nome'].tolist())
+        df_prod_rep = pd.read_sql_query("SELECT * FROM Produtos", conn)
+        if not df_prod_rep.empty:
+            prod_rep = st.selectbox("O que chegou do caminhão?", df_prod_rep['nome'].tolist())
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 tipo_rep = st.radio("Chegou em:", ["Fardos", "Unidades soltas"])
@@ -143,13 +145,15 @@ with aba_estoque:
                 qtd_rep = st.number_input("Quantidade que chegou:", min_value=1, value=1)
             
             if st.button("Atualizar Estoque"):
-                id_rep = int(df_prod[df_prod['nome'] == prod_rep]['id'].values[0])
-                fator = int(df_prod[df_prod['nome'] == prod_rep]['qtd_fardo'].values[0]) if tipo_rep == "Fardos" else 1
+                id_rep = int(df_prod_rep[df_prod_rep['nome'] == prod_rep]['id'].values[0])
+                fator = int(df_prod_rep[df_prod_rep['nome'] == prod_rep]['qtd_fardo'].values[0]) if tipo_rep == "Fardos" else 1
                 qtd_final = qtd_rep * fator
                 cursor = conn.cursor()
                 cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (qtd_final, id_rep))
                 conn.commit()
-                st.success("Estoque abastecido! Atualize a página.")
+                st.success("Estoque abastecido com sucesso! Atualize a página.")
+        else:
+            st.write("Cadastre um produto primeiro para poder repor.")
 
 # --- 3. RESUMO E LUCRO ---
 with aba_resumo:
