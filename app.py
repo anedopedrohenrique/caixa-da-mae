@@ -16,7 +16,12 @@ def conectar_banco():
 
 conn = conectar_banco()
 
-st.markdown("<h1 style='text-align: center; color: #FFBF00;'>🍻 Depósito RL</h1>", unsafe_allow_html=True)
+# --- LOGO E CABEÇALHO OFICIAL DO DEPÓSITO RL ---
+col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+with col_l2:
+    st.image("https://raw.githubusercontent.com/anedopedrohenrique/caixa-da-mae/main/logo.png.jpeg", use_container_width=True)
+
+st.markdown("<h1 style='text-align: center; color: #FFBF00;'>Depósito RL</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #888888;'>Sistema de Gestão Profissional</p>", unsafe_allow_html=True)
 st.divider()
 
@@ -73,7 +78,6 @@ with aba_vender:
                 cursor.execute("INSERT INTO Vendas (produto_id, tipo_venda, qtd, pagamento, total_venda, custo_venda, lucro, data_hora) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
                                (id_prod, tipo, qtd, pagamento, total_cobrar, custo_da_venda, lucro_da_venda, agora))
                 
-                # Desconta o estoque correto (unidade ou fardo completo)
                 if tipo == "Fardo Fechado":
                     qtd_baixa = qtd * qtd_fardo
                 else:
@@ -174,7 +178,6 @@ with aba_resumo:
         st.write("Vendas deste turno:")
         st.dataframe(df_vendas_turno[['id', 'Produto', 'Tipo', 'Qtd', 'Valor', 'Lucro', 'Pagamento']], hide_index=True, use_container_width=True)
         
-        # --- CANCELAR VENDA DE VOLTA ---
         with st.expander("↩️ Cancelar uma Venda Deste Turno"):
             opcoes_venda = df_vendas_turno.apply(lambda r: f"ID: {r['id']} | {r['Produto']} ({r['Tipo']}) | R$ {r['Valor']:.2f}", axis=1).tolist()
             venda_cancelar = st.selectbox("Selecione a venda registrada errada:", opcoes_venda)
@@ -183,14 +186,12 @@ with aba_resumo:
                 idx_v = opcoes_venda.index(venda_cancelar)
                 id_venda_real = int(df_vendas_turno.iloc[idx_v]['id'])
                 
-                # Descobre produto, tipo e quantidade para devolver ao estoque corretamente
                 cursor.execute("SELECT produto_id, tipo_venda, qtd FROM Vendas WHERE id = ?", (id_venda_real,))
                 dados_v = cursor.fetchone()
                 
                 if dados_v:
                     p_id, p_tipo, p_qtd = dados_v
                     if p_id:
-                        # Pega o fator do fardo para devolver a quantidade certa de unidades
                         cursor.execute("SELECT qtd_fardo FROM Produtos WHERE id = ?", (p_id,))
                         res_f = cursor.fetchone()
                         fator_fardo = res_f[0] if res_f else 1
