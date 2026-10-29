@@ -6,7 +6,6 @@ from datetime import datetime
 st.set_page_config(page_title="Depósito RL", page_icon="🍻", layout="centered")
 
 def conectar_banco():
-    # Banco V5 (Preparado para Lucro Real)
     conn = sqlite3.connect('caixa_v5.db')
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS Produtos (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, custo_fardo REAL, venda_un REAL, venda_fardo REAL, qtd_fardo INTEGER, estoque INTEGER DEFAULT 0)''')
@@ -51,7 +50,6 @@ with aba_vender:
         with col2:
             qtd = st.number_input(f"Quantos(as) {tipo.lower()}s?", min_value=1, value=1)
         
-        # Matemática Financeira Inteligente
         if tipo == "Fardo Fechado":
             total_cobrar = qtd * venda_fardo
             custo_da_venda = qtd * custo_fardo
@@ -59,7 +57,7 @@ with aba_vender:
             detalhe = f"(Descontando {qtd_descontar_estoque} latas do estoque)"
         else:
             total_cobrar = qtd * venda_un
-            custo_da_venda = qtd * (custo_fardo / qtd_fardo) # Custo proporcional de 1 unidade
+            custo_da_venda = qtd * (custo_fardo / qtd_fardo)
             qtd_descontar_estoque = qtd
             detalhe = ""
 
@@ -95,8 +93,8 @@ with aba_estoque:
         df_view['Unid. Soltas'] = df_view['estoque'] % df_view['qtd_fardo']
         st.dataframe(df_view[['nome', 'Preço Un.', 'Preço Fardo', 'Fardos', 'Unid. Soltas']], hide_index=True, use_container_width=True)
         
-        # --- NOVO: GERADOR DE CARDÁPIO WHATSAPP ---
-        with st.expander("📲 Gerar Cardápio para o WhatsApp"):
+        # --- GERADOR DE CARDÁPIO WHATSAPP ---
+        with st.expander("📲 Gerar Cardápio para o WhatsApp (Clique aqui)"):
             st.write("Copie o texto abaixo e cole no seu Status ou mande para os clientes!")
             menu_texto = "🍻 *CARDÁPIO DEPÓSITO RL* 🍻\n\n"
             for _, row in df_est.iterrows():
@@ -144,11 +142,8 @@ with aba_estoque:
                 conn.commit()
                 st.success(f"Estoque abastecido! Atualize a página.")
 
-    # --- NOVO: IMPORTAR PLANILHA EM LOTE ---
     with st.expander("🚀 Cadastrar Produtos por Planilha (Rápido)"):
         st.write("Baixe o modelo abaixo, preencha no Excel e suba o arquivo aqui para cadastrar tudo de uma vez.")
-        
-        # Gera um modelo CSV para ela baixar
         df_modelo = pd.DataFrame({"nome": ["Brahma Duplo Malte 350ml", "Coca Cola 2L"], "custo_fardo": [35.90, 8.00], "venda_un": [4.00, 10.00], "venda_fardo": [42.00, 10.00], "qtd_fardo": [12, 1]})
         st.download_button("1. Baixar Planilha Modelo", df_modelo.to_csv(index=False), "modelo_produtos.csv", "text/csv")
         
@@ -186,10 +181,9 @@ with aba_resumo:
         total_bruto = df_vendas_turno['Valor'].sum()
         total_lucro = df_vendas_turno['Lucro'].sum()
         
-        # Visor duplo de Faturamento e Lucro
         c1, c2 = st.columns(2)
         c1.metric("💰 Faturamento Bruto (Entrou)", f"R$ {total_bruto:.2f}")
-        c2.metric("📈 Lucro Líquido Real (Sobrou)", f"R$ {total_lucro:.2f}")
+        c2.metric("📈 Lucro Líquido Real (Sobrou)", f> f"R$ {total_lucro:.2f}" if False else f"R$ {total_lucro:.2f}")
         
         st.write("Vendas deste turno:")
         st.dataframe(df_vendas_turno[['Produto', 'Tipo', 'Qtd', 'Valor', 'Lucro', 'Pagamento']], hide_index=True, use_container_width=True)
