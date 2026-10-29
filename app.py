@@ -78,7 +78,6 @@ with aba_estoque:
             conn.commit()
             st.success(f"Produto {nome} cadastrado! Recarregue a página.")
 
-    # --- O BOTÃO NOVO AQUI ---
     with st.expander("🗑️ Apagar um Produto"):
         if not df_prod.empty:
             prod_apagar = st.selectbox("Qual produto deseja excluir?", df_prod['nome'].tolist())
@@ -102,8 +101,36 @@ with aba_resumo:
         st.metric("Entrou no Caixa Hoje", f"R$ {vendas_hoje['total'].sum():.2f}")
         
         st.write("Vendas Feitas Hoje:")
-        # Atualizei a lógica aqui para o site não quebrar se ela vender um produto e depois apagar ele do sistema
-        df_display = pd.read_sql_query(f"SELECT COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id WHERE Vendas.data_hora LIKE '{hoje}%'", conn)
+        df_display = pd.read_sql_query(f"SELECT Vendas.id as ID, COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento as Pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id WHERE Vendas.data_hora LIKE '{hoje}%'", conn)
         st.dataframe(df_display, hide_index=True, use_container_width=True)
+        
+        # --- A MÁGICA DE CANCELAR A VENDA AQUI ---
+        with st.expander("↩️ Cancelar uma Venda de Hoje"):
+            if not df_display.empty:
+                opcoes_venda = df_display.apply(lambda r: f"ID: {r['ID']} | {r['Produto']} | R$ {r['Valor']:.2f}", axis=1).tolist()
+                venda_cancelar = st.selectbox("Selecione a venda que foi registrada errada:", opcoes_venda)
+                
+                if st.button("🚨 Cancelar Venda e Devolver ao Estoque"):
+                    idx_v = opcoes_venda.index(venda_cancelar)
+                    id_venda_real = int(df_display.iloc[idx_v]['ID'])
+                    
+                    cursor = conn.cursor()
+                    # 1. Descobre qual produto e quantidade foi vendido
+                    cursor.execute("SELECT produto_id, qtd FROM Vendas WHERE id = ?", (id_venda_real,))
+                    dados_v = cursor.fetchone()
+                    
+                    if dados_v:
+                        p_id, p_qtd = dados_v
+                        
+                        # 2. Devolve a mercadoria para a prateleira virtual
+                        if p_id:
+                            cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (p_qtd, p_id))
+                        
+                        # 3. Rasga o comprovante da venda errada
+                        cursor.execute("DELETE FROM Vendas WHERE id = ?", (id_venda_real,))
+                        conn.commit()
+                        st.success("Venda cancelada! O caixa e o estoque foram corrigidos. Recarregue a página.")
+            else:
+                st.write("Nenhuma venda registrada hoje.")
     else:
         st.info("Nenhuma venda registrada ainda.")
