@@ -10,6 +10,8 @@ def conectar_banco():
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS Produtos (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, custo REAL, venda REAL, estoque INTEGER DEFAULT 0)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS Vendas (id INTEGER PRIMARY KEY AUTOINCREMENT, produto_id INTEGER, qtd INTEGER, pagamento TEXT, total REAL, data_hora TEXT)''')
+    # Tabela nova para gerenciar os turnos!
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Fechamentos (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT)''')
     conn.commit()
     return conn
 
@@ -91,46 +93,66 @@ with aba_estoque:
 
 # --- 3. RESUMO ---
 with aba_resumo:
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    df_vendas = pd.read_sql_query("SELECT * FROM Vendas", conn)
+    cursor = conn.cursor()
     
-    if not df_vendas.empty:
-        df_vendas['data_hora'] = pd.to_datetime(df_vendas['data_hora'])
-        vendas_hoje = df_vendas[df_vendas['data_hora'].dt.date == datetime.now().date()]
-        
-        st.metric("Entrou no Caixa Hoje", f"R$ {vendas_hoje['total'].sum():.2f}")
-        
-        st.write("Vendas Feitas Hoje:")
-        df_display = pd.read_sql_query(f"SELECT Vendas.id as ID, COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento as Pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id WHERE Vendas.data_hora LIKE '{hoje}%'", conn)
-        st.dataframe(df_display, hide_index=True, use_container_width=True)
-        
-        # --- A MÁGICA DE CANCELAR A VENDA AQUI ---
-        with st.expander("↩️ Cancelar uma Venda de Hoje"):
-            if not df_display.empty:
-                opcoes_venda = df_display.apply(lambda r: f"ID: {r['ID']} | {r['Produto']} | R$ {r['Valor']:.2f}", axis=1).tolist()
-                venda_cancelar = st.selectbox("Selecione a venda que foi registrada errada:", opcoes_venda)
-                
-                if st.button("🚨 Cancelar Venda e Devolver ao Estoque"):
-                    idx_v = opcoes_venda.index(venda_cancelar)
-                    id_venda_real = int(df_display.iloc[idx_v]['ID'])
-                    
-                    cursor = conn.cursor()
-                    # 1. Descobre qual produto e quantidade foi vendido
-                    cursor.execute("SELECT produto_id, qtd FROM Vendas WHERE id = ?", (id_venda_real,))
-                    dados_v = cursor.fetchone()
-                    
-                    if dados_v:
-                        p_id, p_qtd = dados_v
-                        
-                        # 2. Devolve a mercadoria para a prateleira virtual
-                        if p_id:
-                            cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (p_qtd, p_id))
-                        
-                        # 3. Rasga o comprovante da venda errada
-                        cursor.execute("DELETE FROM Vendas WHERE id = ?", (id_venda_real,))
-                        conn.commit()
-                        st.success("Venda cancelada! O caixa e o estoque foram corrigidos. Recarregue a página.")
-            else:
-                st.write("Nenhuma venda registrada hoje.")
+    # 1. Descobre a data do último fechamento de caixa
+    cursor.execute("SELECT data_hora FROM Fechamentos ORDER BY id DESC LIMIT 1")
+    ultimo_fechamento = cursor.fetchone()
+    
+    # 2. Puxa apenas as vendas feitas DEPOIS do último fechamento
+    if ultimo_fechamento:
+        data_corte = ultimo_fechamento[0]
+        st.caption(f"Caixa aberto desde: {data_corte}")
+        query_vendas = f"SELECT Vendas.id as ID, COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento as Pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id WHERE Vendas.data_hora > '{data_corte}'"
     else:
-        st.info("Nenhuma venda registrada ainda.")
+        st.caption("Primeiro turno de uso do sistema.")
+        query_vendas = "SELECT Vendas.id as ID, COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento as Pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id"
+
+    df_vendas_turno = pd.read_sql_query(query_vendas, conn)
+    
+    # 3. Mostra os números do turno atual
+    if not df_vendas_turno.empty:
+        total_turno = df_vendas_turno['Valor'].sum()
+        st.metric("Caixa Atual (Neste turno)", f"R$ {total_turno:.2f}")
+        
+        st.write("Vendas deste turno:")
+        st.dataframe(df_vendas_turno, hide_index=True, use_container_width=True)
+        
+        with st.expander("↩️ Cancelar uma Venda Deste Turno"):
+            opcoes_venda = df_vendas_turno.apply(lambda r: f"ID: {r['ID']} | {r['Produto']} | R$ {r['Valor']:.2f}", axis=1).tolist()
+            venda_cancelar = st.selectbox("Selecione a venda errada:", opcoes_venda)
+            
+            if st.button("🚨 Cancelar Venda e Devolver Estoque"):
+                idx_v = opcoes_venda.index(venda_cancelar)
+                id_venda_real = int(df_vendas_turno.iloc[idx_v]['ID'])
+                
+                cursor.execute("SELECT produto_id, qtd FROM Vendas WHERE id = ?", (id_venda_real,))
+                dados_v = cursor.fetchone()
+                if dados_v:
+                    p_id, p_qtd = dados_v
+                    if p_id:
+                        cursor.execute("UPDATE Produtos SET estoque = estoque + ? WHERE id = ?", (p_qtd, p_id))
+                    cursor.execute("DELETE FROM Vendas WHERE id = ?", (id_venda_real,))
+                    conn.commit()
+                    st.success("Venda cancelada! Caixa e estoque corrigidos. Recarregue a página.")
+                    
+        # Botão de Fechar o Dia
+        st.divider()
+        st.subheader("🔒 Encerrar Turno")
+        st.write("Ao encerrar, o caixa zera para o próximo turno (ex: tarde ou amanhã). O valor total fica salvo no histórico.")
+        if st.button("Encerrar o Caixa Agora", type="primary"):
+            agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute("INSERT INTO Fechamentos (data_hora) VALUES (?)", (agora,))
+            conn.commit()
+            st.success("Caixa encerrado com sucesso! Recarregue a página para iniciar o novo turno zerado.")
+    else:
+        st.metric("Caixa Atual (Neste turno)", "R$ 0,00")
+        st.info("Nenhuma venda registrada neste turno ainda.")
+
+    # 4. A Gaveta de Histórico (Pra ela ver o que já foi fechado e não perder o controle)
+    with st.expander("📚 Histórico Geral (Ver dias/turnos anteriores)"):
+        df_todas = pd.read_sql_query("SELECT SUBSTR(Vendas.data_hora, 1, 16) as Data, COALESCE(Produtos.nome, 'Produto Apagado') as Produto, Vendas.qtd as Qtd, Vendas.total as Valor, Vendas.pagamento as Pagamento FROM Vendas LEFT JOIN Produtos ON Vendas.produto_id = Produtos.id ORDER BY Vendas.id DESC LIMIT 100", conn)
+        if not df_todas.empty:
+            st.dataframe(df_todas, hide_index=True, use_container_width=True)
+        else:
+            st.write("Histórico vazio.")
