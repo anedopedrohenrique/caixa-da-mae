@@ -59,7 +59,7 @@ with aba_vender:
             total_cobrar = qtd * venda_fardo
             custo_da_venda = qtd * custo_fardo
             qtd_descontar_estoque = qtd * qtd_fardo
-            detalhe = f"(Descontando {qtd_descontar_estoque} latas do estoque)"
+            detalhe = f"(Descontando {qtd_descontar_estoque} unidades do estoque)"
         else:
             total_cobrar = qtd * venda_un
             custo_da_venda = qtd * (custo_fardo / qtd_fardo)
@@ -133,7 +133,6 @@ with aba_estoque:
             conn.commit()
             st.success(f"[{nome}] cadastrado com sucesso! Atualize a página.")
 
-    # --- O BOTÃO DE REPOR ESTOQUE ESTÁ AQUI DE VOLTA! ---
     with st.expander("📥 Repor Mercadoria Existente"):
         df_prod_rep = pd.read_sql_query("SELECT * FROM Produtos", conn)
         if not df_prod_rep.empty:
@@ -154,6 +153,21 @@ with aba_estoque:
                 st.success("Estoque abastecido com sucesso! Atualize a página.")
         else:
             st.write("Cadastre um produto primeiro para poder repor.")
+
+    # --- O BOTÃO DE EXCLUIR PRODUTO GARANTIDO AQUI ---
+    with st.expander("🗑️ Apagar um Produto"):
+        df_prod_del = pd.read_sql_query("SELECT * FROM Produtos", conn)
+        if not df_prod_del.empty:
+            prod_apagar = st.selectbox("Qual produto deseja excluir do sistema?", df_prod_del['nome'].tolist())
+            st.warning("Atenção: O produto será removido da prateleira definitivamente.")
+            if st.button("🚨 Apagar Produto Definitivamente"):
+                id_apagar = int(df_prod_del[df_prod_del['nome'] == prod_apagar]['id'].values[0])
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM Produtos WHERE id = ?", (id_apagar,))
+                conn.commit()
+                st.success(f"[{prod_apagar}] excluído com sucesso! Atualize a página.")
+        else:
+            st.write("Nenhum produto para apagar.")
 
 # --- 3. RESUMO E LUCRO ---
 with aba_resumo:
